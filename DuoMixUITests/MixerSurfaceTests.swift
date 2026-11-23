@@ -17,25 +17,15 @@ final class MixerSurfaceTests: XCTestCase {
         let originalRange = range.label
         let strips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "channel-"))
         let originalCount = strips.count
-        let zoomOut = app.buttons["zoom-out"]
-        let zoomIn = app.buttons["zoom-in"]
-        let showMore = zoomOut.isEnabled
-        let first = showMore ? zoomOut : zoomIn
-        let restore = showMore ? zoomIn : zoomOut
-        for control in [connection, zoomOut, zoomIn, app.buttons["previous-bank"], app.buttons["next-bank"]] {
-            assertTouchSize(control)
-        }
-        // Tap inside the padded target, beyond the smaller painted icon.
-        first.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.12)).tap()
-        XCTAssertNotEqual(range.label, originalRange)
-        if showMore { XCTAssertGreaterThan(strips.count, originalCount) }
-        else { XCTAssertLessThan(strips.count, originalCount) }
+        XCTAssertFalse(app.buttons["zoom-out"].exists)
+        XCTAssertFalse(app.buttons["zoom-in"].exists)
+        let previous = app.buttons["previous-bank"]
+        let next = app.buttons["next-bank"]
+        for control in [connection, previous, next] { assertTouchSize(control) }
         let mute = app.buttons["mute-2"]
         let fader = app.descendants(matching: .any).matching(identifier: "fader-2").firstMatch
         for control in [snare, fader, mute] { assertTouchSize(control) }
-        restore.tap()
-        XCTAssertEqual(range.label, originalRange)
-        XCTAssertEqual(strips.count, originalCount)
+        XCTAssertGreaterThanOrEqual(snare.frame.width, 72)
 
         XCTAssertEqual(fader.label, "Snare fader position")
         XCTAssertEqual(fader.value as? String, "63%")
@@ -49,6 +39,16 @@ final class MixerSurfaceTests: XCTestCase {
 
         let pad = app.descendants(matching: .any).matching(identifier: "fine-pad").firstMatch
         if pad.exists {
+            let toolbarBottom = [connection, previous, range, next].map { $0.frame.maxY }.max()!
+            let upperSpan = pad.frame.minY - app.frame.minY
+            XCTAssertLessThanOrEqual(connection.frame.minY - app.frame.minY, upperSpan * 0.25,
+                                     "Keep the toolbar near the top of the tabletop display")
+            XCTAssertLessThanOrEqual(toolbarBottom, snare.frame.minY,
+                                     "The upper display should place navigation above its strips")
+            for element in [snare, fader, meter, mute] {
+                XCTAssertLessThanOrEqual(element.frame.maxY, pad.frame.minY,
+                                         "\(element.identifier) crosses into the lower pad")
+            }
             XCTAssertEqual(pad.label, "Fine fader position for Snare")
             for control in [pad, app.buttons["fine-up"], app.buttons["fine-down"]] { assertTouchSize(control) }
             XCTAssertEqual(pad.value as? String, "63%")
@@ -73,9 +73,13 @@ final class MixerSurfaceTests: XCTestCase {
 
         mute.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.12)).tap()
         XCTAssertEqual(mute.value as? String, "On")
-        app.buttons["next-bank"].tap()
+        next.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.12)).tap()
         XCTAssertFalse(snare.exists)
-        app.buttons["previous-bank"].tap()
+        XCTAssertNotEqual(range.label, originalRange)
+        XCTAssertTrue(app.buttons["channel-\(originalCount + 1)"].isSelected)
+        previous.tap()
+        XCTAssertEqual(range.label, originalRange)
+        XCTAssertEqual(strips.count, originalCount)
         XCTAssertEqual(mute.value as? String, "On")
         app.buttons["connections"].tap()
         XCTAssertTrue(app.textFields["mixer-host"].waitForExistence(timeout: 3))

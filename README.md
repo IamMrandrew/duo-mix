@@ -10,15 +10,15 @@ Duo Mix is a native SwiftUI mixing surface for iPhone Duo, iPad, and iPhone. Ope
 
 Open `DuoMix.xcodeproj` in Xcode 27.2, choose the **DuoMix** scheme, select an iPhone Duo simulator, and press **Run**. The app also supports iOS and iPadOS 17 or later. For a physical device, choose your team in **Signing & Capabilities**.
 
-The app opens in **Demo**. Drag anywhere on a channel’s fader lane to move the Chisel grip. A tap on the lane or channel name selects it. Tap **Mute** to mute that input. Use the magnifiers to fit more channels or widen the strips. The arrows page through the bank. Zoom keeps the selected channel in view and remembers your preference.
+The app opens in **Demo**. Drag anywhere on a channel’s fader lane to move the Chisel grip. A tap on the lane or channel name selects it. Tap **Mute** to mute that input. The bank fits as many whole strips as the window allows, with a 72-point minimum at standard text sizes. Use the arrows to page through the inputs.
 
 The line across the grip marks the fader setting. The meter beside it and the dB reading above it show the incoming audio level. Demo generates local practice signals. In a live session the driver estimates dBFS from the console's input meter samples. **−∞** means digital silence. **—** means the app has no fresh sample. On a supported phone, the fader gives a light pickup, spaced ticks, and a firmer stop at either end.
 
 | Surface | How to mix |
 | --- | --- |
-| Duo, half open like a laptop | Faders sit above the fold. Drag the lower pad for fine control of the selected input, or tap **−** or **+** to nudge one percentage point. |
+| Duo, half open like a laptop | The toolbar shares the top row with the system indicators when space allows. Faders fill the upper half down to the fold. Drag the lower pad for fine control of the selected input, or tap **−** or **+** to nudge one percentage point. |
 | Duo, held like a book | A single bank continues on the other side of the hinge. Every strip fits fully on one side. |
-| Open Duo, iPad, cover display, and ordinary iPhone | Faders use the full available height. Zoom and bank navigation stay in the same toolbar. |
+| Open Duo, iPad, cover display, and ordinary iPhone | Faders fill the space below the connection and bank controls. |
 
 ## First test with the 32SX
 

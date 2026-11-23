@@ -7,8 +7,7 @@ enum Desk {
     static let line = Color.white.opacity(0.13)
     static let ink = Color(red: 0.97, green: 0.96, blue: 0.94)
     static let detail = Color(red: 0.72, green: 0.70, blue: 0.67)
-    static let accent = Color(red: 1, green: 210 / 255, blue: 176 / 255)
-    static let amber = Color(red: 0.93, green: 0.72, blue: 0.43)
+    static let accent = Color(.sRGB, red: 1, green: 196 / 255, blue: 0)
     static let live = Color(red: 0.65, green: 0.79, blue: 0.55)
     static let muted = Color(red: 0.96, green: 0.59, blue: 0.51)
 
@@ -33,7 +32,7 @@ extension MixerStatus {
     var indicator: Color {
         switch self {
         case .demo: Desk.detail
-        case .connecting: Desk.amber
+        case .connecting: Desk.accent
         case .live: Desk.live
         case .offline: Desk.muted
         }
@@ -43,7 +42,6 @@ extension MixerStatus {
 struct MixerSurface: View {
     @ObservedObject var store: MixerStore
     @State private var showConnection = false
-    @AppStorage("channelStripZoom") private var zoom = FaderBankLayout.defaultZoom
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var awaitingDesk: Bool { store.status == .live && store.hasPendingWrites }
@@ -53,13 +51,8 @@ struct MixerSurface: View {
         GeometryReader { proxy in
             let size = proxy.size
             let division = activeDivision(proxy)
-            if let division, division.width > division.height {
-                VStack(spacing: 0) {
-                    bankDeck(width: size.width, height: division.minY)
-                        .frame(height: division.minY)
-                    Spacer().frame(height: division.height)
-                    precisionDeck
-                }
+            if #available(iOS 27.1, *), let division, division.width > division.height {
+                tabletop(outer: proxy, division: division)
             } else {
                 bankDeck(width: size.width, height: size.height, verticalHinge: division)
             }
@@ -72,6 +65,28 @@ struct MixerSurface: View {
             ConnectionSheet(store: store)
         }
     }
+
+    @available(iOS 27.1, *)
+    private func tabletop(outer: GeometryProxy, division: CGRect) -> some View {
+        GeometryReader { full in
+            // The outer reader starts inside the safe area. Translate the measured
+            // fold into this edge-to-edge reader without shifting the lower pad.
+            let safeTop = max(0, outer.frame(in: .global).minY - full.frame(in: .global).minY)
+            let foldTop = division.minY + safeTop
+            let header = TabletopToolbarLayout(width: full.size.width, margin: bankMargin(full.size.width),
+                                               safeTop: safeTop, occlusions: full.reservedRegions(kind: .occlusion).map(\.frame),
+                                               accessible: typeSize.isAccessibilitySize)
+            VStack(spacing: 0) {
+                bankDeck(width: full.size.width, height: foldTop, tabletopHeader: header)
+                    .frame(height: foldTop)
+                Color.clear.frame(height: division.height)
+                precisionDeck
+            }
+        }
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private func bankMargin(_ width: CGFloat) -> CGFloat { width < 455 ? 8 : 12 }
 
     private func activeDivision(_ proxy: GeometryProxy) -> CGRect? {
         if #available(iOS 27.1, *) {
@@ -91,24 +106,21 @@ struct MixerSurface: View {
     }
 
     @ViewBuilder
-    private func bankDeck(width: CGFloat, height: CGFloat, verticalHinge: CGRect? = nil) -> some View {
-        let margin: CGFloat = width < 455 ? 8 : 12
+    private func bankDeck(width: CGFloat, height: CGFloat, verticalHinge: CGRect? = nil,
+                          tabletopHeader: TabletopToolbarLayout? = nil) -> some View {
+        let margin = bankMargin(width)
         let compact = height < 370
         let layout = FaderBankLayout(width: width, margin: margin, hinge: verticalHinge,
-                                     zoom: zoom, accessible: typeSize.isAccessibilitySize)
+                                     accessible: typeSize.isAccessibilitySize)
         let count = layout.count
         let selectedIndex = store.channels.firstIndex { $0.id == store.selectedID } ?? 0
         let start = (selectedIndex / count) * count
         let bank = Array(store.channels.dropFirst(start).prefix(count))
-        VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+        VStack(alignment: .leading, spacing: tabletopHeader != nil || compact ? 4 : 8) {
             HStack(spacing: 0) {
                 HStack(spacing: 0) {
                     connectionButton
                     Spacer(minLength: 0)
-                    bankButton("Zoom out, show more channels", icon: "minus.magnifyingglass", identifier: "zoom-out",
-                               enabled: zoom > 0) { zoom -= 1 }
-                    bankButton("Zoom in, widen channels", icon: "plus.magnifyingglass", identifier: "zoom-in",
-                               enabled: zoom < FaderBankLayout.stripWidths.count - 1) { zoom += 1 }
                 }
                 .frame(width: layout.firstWidth)
                 if let gap = layout.gap { Color.clear.frame(width: gap, height: 1) }
@@ -127,6 +139,10 @@ struct MixerSurface: View {
                                enabled: start + count < store.channels.count) { store.select(store.channels[start + count].id) }
                 }
             }
+            .padding(.leading, tabletopHeader?.leadingInset ?? 0)
+            .padding(.trailing, tabletopHeader?.trailingInset ?? 0)
+            .padding(.top, tabletopHeader?.rowTop ?? 0)
+            .frame(minHeight: tabletopHeader?.height, alignment: .top)
             if bank.isEmpty || !store.canMix {
                 disconnectedBank
             } else {
@@ -142,15 +158,15 @@ struct MixerSurface: View {
             }
         }
         .padding(.horizontal, margin)
-        .padding(.top, compact ? 0 : 4)
-        .padding(.bottom, compact ? 5 : 12)
+        .padding(.top, tabletopHeader != nil || compact ? 0 : 4)
+        .padding(.bottom, tabletopHeader != nil ? 2 : compact ? 5 : 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var connectionButton: some View {
         Button { showConnection = true } label: {
             HStack(spacing: 5) {
-                Circle().fill(awaitingDesk ? Desk.amber : store.status.indicator).frame(width: 7, height: 7)
+                Circle().fill(awaitingDesk ? Desk.accent : store.status.indicator).frame(width: 7, height: 7)
                 ViewThatFits(in: .horizontal) {
                     Text(connectionName).fixedSize()
                     Text(store.status.displayName).lineLimit(1)

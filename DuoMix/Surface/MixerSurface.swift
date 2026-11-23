@@ -1,15 +1,16 @@
 import SwiftUI
 
 enum Desk {
-    static let background = Color(red: 0.065, green: 0.074, blue: 0.078)
-    static let panel = Color(red: 0.102, green: 0.116, blue: 0.122)
-    static let raised = Color(red: 0.143, green: 0.160, blue: 0.168)
+    static let background = Color(red: 0.082, green: 0.079, blue: 0.075)
+    static let panel = Color(red: 0.136, green: 0.131, blue: 0.123)
+    static let raised = Color(red: 0.203, green: 0.196, blue: 0.184)
     static let line = Color.white.opacity(0.13)
-    static let ink = Color(red: 0.93, green: 0.95, blue: 0.93)
-    static let detail = Color(red: 0.68, green: 0.72, blue: 0.71)
-    static let mint = Color(red: 0.59, green: 0.92, blue: 0.75)
-    static let amber = Color(red: 1.0, green: 0.75, blue: 0.43)
-    static let muted = Color(red: 1.0, green: 0.53, blue: 0.44)
+    static let ink = Color(red: 0.97, green: 0.96, blue: 0.94)
+    static let detail = Color(red: 0.72, green: 0.70, blue: 0.67)
+    static let accent = Color(red: 1, green: 210 / 255, blue: 176 / 255)
+    static let amber = Color(red: 0.93, green: 0.72, blue: 0.43)
+    static let live = Color(red: 0.65, green: 0.79, blue: 0.55)
+    static let muted = Color(red: 0.96, green: 0.59, blue: 0.51)
 
     static func label(_ size: CGFloat = 11) -> Font {
         .system(size: size, weight: .semibold, design: .monospaced)
@@ -31,9 +32,9 @@ extension MixerStatus {
 
     var indicator: Color {
         switch self {
-        case .demo: Desk.amber
+        case .demo: Desk.detail
         case .connecting: Desk.amber
-        case .live: Desk.mint
+        case .live: Desk.live
         case .offline: Desk.muted
         }
     }
@@ -42,11 +43,11 @@ extension MixerStatus {
 struct MixerSurface: View {
     @ObservedObject var store: MixerStore
     @State private var showConnection = false
+    @AppStorage("channelStripZoom") private var zoom = FaderBankLayout.defaultZoom
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var awaitingDesk: Bool { store.status == .live && store.hasPendingWrites }
     private var connectionName: String { awaitingDesk ? "Awaiting desk" : store.status.displayName }
-    private var isDemo: Bool { store.status == .demo }
 
     var body: some View {
         GeometryReader { proxy in
@@ -59,32 +60,13 @@ struct MixerSurface: View {
                     Spacer().frame(height: division.height)
                     precisionDeck
                 }
-            } else if let division {
-                HStack(spacing: 0) {
-                    bankDeck(width: division.minX, height: size.height)
-                        .frame(width: division.minX)
-                    Spacer().frame(width: division.width)
-                    precisionDeck
-                }
-            } else if size.width >= 900 || (size.width >= 640 && size.height < 470) {
-                let padWidth = min(320, max(215, size.width * 0.31))
-                HStack(spacing: 0) {
-                    bankDeck(width: size.width - padWidth - 1, height: size.height)
-                    Rectangle().fill(Desk.line).frame(width: 1)
-                    precisionDeck.frame(width: padWidth)
-                }
             } else {
-                let height = min(245, max(146, size.height * 0.30))
-                VStack(spacing: 0) {
-                    bankDeck(width: size.width, height: size.height - height - 1)
-                    Rectangle().fill(Desk.line).frame(height: 1)
-                    precisionDeck.frame(height: height)
-                }
+                bankDeck(width: size.width, height: size.height, verticalHinge: division)
             }
         }
         .background(Desk.background.ignoresSafeArea())
         .foregroundStyle(Desk.ink)
-        .tint(Desk.mint)
+        .tint(Desk.ink)
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showConnection) {
             ConnectionSheet(store: store)
@@ -109,86 +91,51 @@ struct MixerSurface: View {
     }
 
     @ViewBuilder
-    private func bankDeck(width: CGFloat, height: CGFloat) -> some View {
-        let margin: CGFloat = width < 455 ? 12 : 18
+    private func bankDeck(width: CGFloat, height: CGFloat, verticalHinge: CGRect? = nil) -> some View {
+        let margin: CGFloat = width < 455 ? 8 : 12
         let compact = height < 370
-        let preferredStripWidth: CGFloat = typeSize.isAccessibilitySize ? 110 : 65
-        let count = max(1, min(8, Int((width - 2 * margin) / (preferredStripWidth + 6))))
+        let layout = FaderBankLayout(width: width, margin: margin, hinge: verticalHinge,
+                                     zoom: zoom, accessible: typeSize.isAccessibilitySize)
+        let count = layout.count
         let selectedIndex = store.channels.firstIndex { $0.id == store.selectedID } ?? 0
         let start = (selectedIndex / count) * count
         let bank = Array(store.channels.dropFirst(start).prefix(count))
-        VStack(alignment: .leading, spacing: compact ? 4 : 9) {
-            HStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: "slider.vertical.3").foregroundStyle(Desk.mint).accessibilityHidden(true)
-                    Text("Duo Mix").font(.headline.weight(.semibold))
+        VStack(alignment: .leading, spacing: compact ? 4 : 8) {
+            HStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    connectionButton
+                    Spacer(minLength: 0)
+                    bankButton("Zoom out, show more channels", icon: "minus.magnifyingglass", identifier: "zoom-out",
+                               enabled: zoom > 0) { zoom -= 1 }
+                    bankButton("Zoom in, widen channels", icon: "plus.magnifyingglass", identifier: "zoom-in",
+                               enabled: zoom < FaderBankLayout.stripWidths.count - 1) { zoom += 1 }
                 }
-                .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 4)
-                Button { showConnection = true } label: {
-                    HStack(spacing: 7) {
-                        if isDemo {
-                            Label("Connect", systemImage: "cable.connector")
-                                .font(.subheadline.weight(.semibold)).foregroundStyle(Desk.mint)
-                        } else {
-                            Circle().fill(awaitingDesk ? Desk.amber : store.status.indicator).frame(width: 7, height: 7)
-                            Text(connectionName).font(Desk.label())
-                            Image(systemName: "chevron.down").font(.caption2.weight(.bold))
-                        }
+                .frame(width: layout.firstWidth)
+                if let gap = layout.gap { Color.clear.frame(width: gap, height: 1) }
+                HStack(spacing: 0) {
+                    if layout.gap != nil { Spacer(minLength: 0) }
+                    bankButton("Previous inputs", icon: "chevron.left", identifier: "previous-bank",
+                               enabled: start > 0) { store.select(store.channels[max(0, start - count)].id) }
+                    if let first = bank.first, let last = bank.last {
+                        Text("\(Desk.number(first.id))–\(Desk.number(last.id))")
+                            .font(Desk.label(13)).foregroundStyle(Desk.ink)
+                            .lineLimit(1).fixedSize()
+                            .accessibilityLabel("Inputs \(first.id) through \(last.id)")
+                            .accessibilityIdentifier("visible-inputs")
                     }
-                    .padding(.horizontal, 11).padding(.vertical, 6)
-                    .background(Capsule().fill(Desk.raised))
-                    .frame(minHeight: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(isDemo ? "Connect to a mixer" : "Mixer connection, \(connectionName)")
-                .accessibilityIdentifier("connections")
-            }
-            .padding(.horizontal, 2)
-            Rectangle().fill(Desk.line).frame(height: 1)
-            HStack(spacing: 4) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(isDemo ? "Demo desk" : "Main mix")
-                        .font(.system(size: compact ? 21 : 27, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier(isDemo ? "demo-desk-title" : "main-mix-title")
-                    if isDemo && height >= 300 && width >= 310 {
-                        Text("Offline practice · \(store.channels.count) inputs")
-                            .font(.caption).foregroundStyle(Desk.detail)
-                            .lineLimit(1).minimumScaleFactor(0.8)
-                    }
-                }
-                Spacer(minLength: 0)
-                if let first = bank.first, let last = bank.last {
-                    Text("\(Desk.number(first.id))–\(Desk.number(last.id))")
-                        .font(Desk.label()).foregroundStyle(Desk.detail)
-                        .accessibilityLabel("Inputs \(first.id) through \(last.id)")
-                }
-                bankButton("Previous inputs", icon: "chevron.left", identifier: "previous-bank",
-                           enabled: start > 0) {
-                    store.select(store.channels[max(0, start - count)].id)
-                }
-                bankButton("Next inputs", icon: "chevron.right", identifier: "next-bank",
-                           enabled: start + count < store.channels.count) {
-                    store.select(store.channels[start + count].id)
+                    bankButton("Next inputs", icon: "chevron.right", identifier: "next-bank",
+                               enabled: start + count < store.channels.count) { store.select(store.channels[start + count].id) }
                 }
             }
             if bank.isEmpty || !store.canMix {
                 disconnectedBank
             } else {
-                HStack(spacing: 5) {
-                    ForEach(bank, id: \.id) { channel in
-                        ChannelStrip(channel: channel, selected: channel.id == store.selectedID,
-                                     compact: compact, select: { store.select(channel.id) },
-                                     setLevel: { store.setLevel($0, channel: channel.id) },
-                                     toggleMute: { store.setMute(!channel.isMuted, channel: channel.id) })
-                        .frame(maxWidth: .infinity)
-                    }
-                    if bank.count < count {
-                        ForEach(bank.count..<count, id: \.self) { _ in
-                            Color.clear.frame(maxWidth: .infinity)
-                        }
+                HStack(spacing: 0) {
+                    strips(bank.prefix(layout.firstCount), slots: layout.firstCount, compact: compact)
+                        .frame(width: layout.firstWidth)
+                    if let gap = layout.gap {
+                        Color.clear.frame(width: gap)
+                        strips(bank.dropFirst(layout.firstCount), slots: layout.secondCount, compact: compact)
                     }
                 }
                 .id(store.status.displayName)
@@ -200,20 +147,58 @@ struct MixerSurface: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
+    private var connectionButton: some View {
+        Button { showConnection = true } label: {
+            HStack(spacing: 5) {
+                Circle().fill(awaitingDesk ? Desk.amber : store.status.indicator).frame(width: 7, height: 7)
+                ViewThatFits(in: .horizontal) {
+                    Text(connectionName).fixedSize()
+                    Text(store.status.displayName).lineLimit(1)
+                }
+                .font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.down").font(.system(size: 11, weight: .semibold))
+            }
+            .padding(.horizontal, 10).frame(minHeight: 40)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Desk.raised))
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Mixer connection, \(connectionName)")
+        .accessibilityIdentifier("connections")
+    }
+
+    private func strips(_ bank: ArraySlice<MixerChannel>, slots: Int, compact: Bool) -> some View {
+        HStack(spacing: 1) {
+            ForEach(bank) { channel in
+                ChannelStrip(channel: channel, selected: channel.id == store.selectedID,
+                             compact: compact, meters: store.meters, select: { store.select(channel.id) },
+                             setLevel: { store.setLevel($0, channel: channel.id) },
+                             toggleMute: { store.setMute(!channel.isMuted, channel: channel.id) })
+                    .frame(maxWidth: .infinity)
+            }
+            ForEach(bank.count..<slots, id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
+        }
+        .background(Color.black.opacity(0.7))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Desk.line))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var disconnectedBank: some View {
         VStack(spacing: 9) {
             if case .connecting = store.status {
-                ProgressView().tint(Desk.mint)
+                ProgressView().tint(Desk.ink)
                 Text("Waiting for mixer state").font(.headline)
             } else {
                 Image(systemName: "cable.connector").font(.title2).foregroundStyle(Desk.detail)
                 Text("Mixer offline").font(.headline)
                 HStack(spacing: 16) {
                     Button("Connect") { showConnection = true }
-                    Button("Open demo desk") { store.useDemo() }
+                    Button("Use demo") { store.useDemo() }
                         .accessibilityIdentifier("offline-open-demo")
                 }
-                .font(.subheadline.weight(.semibold)).foregroundStyle(Desk.mint)
+                .font(.subheadline.weight(.semibold)).foregroundStyle(Desk.ink)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -224,10 +209,10 @@ struct MixerSurface: View {
                             enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.caption.weight(.bold))
-                .frame(width: 29, height: 27)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Desk.raised))
-                .frame(width: 44, height: 44)
+                .font(.system(size: 18, weight: .medium))
+                .frame(width: 41, height: 40)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Desk.raised))
+                .frame(width: 46, height: 48)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

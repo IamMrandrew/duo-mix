@@ -1,3 +1,4 @@
+import Darwin
 import Network
 import XCTest
 
@@ -8,6 +9,43 @@ enum DeskWire {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         return try NWListener(using: parameters)
+    }
+
+    // Real desks send from their TCP control port. Simulator can substitute an
+    // ephemeral UDP source for NWParameters.requiredLocalEndpoint, so bind it explicitly.
+    static func meterStream(from local: NWEndpoint.Port, to remote: NWEndpoint.Port,
+                            sample: Data, queue: DispatchQueue) throws -> DispatchSourceTimer {
+        let fd = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = local.rawValue.bigEndian
+        let size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, size) }
+        }
+        guard bound == 0 else {
+            let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            Darwin.close(fd)
+            throw error
+        }
+        address.sin_port = remote.rawValue.bigEndian
+        let destination = address
+        let feed = DispatchSource.makeTimerSource(queue: queue)
+        feed.setEventHandler {
+            let written = withUnsafePointer(to: destination) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { target in
+                    sample.withUnsafeBytes { Darwin.sendto(fd, $0.baseAddress, $0.count, 0, target, size) }
+                }
+            }
+            XCTAssertEqual(written, sample.count, "Desk could not send its loopback meter packet")
+        }
+        feed.setCancelHandler { Darwin.close(fd) }
+        feed.schedule(deadline: .now(), repeating: .milliseconds(55))
+        feed.resume()
+        return feed
     }
 
     static func sendInitialState(to peer: NWConnection) {

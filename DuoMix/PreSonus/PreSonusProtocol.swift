@@ -4,14 +4,18 @@ import Foundation
 enum PreSonusWire {
     static let signature: [UInt8] = [0x55, 0x43, 0, 1]
 
-    static func frame(_ kind: String, body: [UInt8] = []) -> Data {
+    static func frame(_ kind: String, source: UInt8 = 0x68, body: [UInt8] = []) -> Data {
         let size = UInt16(body.count + 6)
         var bytes = signature
         bytes += [UInt8(truncatingIfNeeded: size), UInt8(size >> 8)]
         bytes += kind.utf8
-        bytes += [0x68, 0, 0x65, 0]
+        bytes += [source, 0, 0x65, 0]
         bytes += body
         return Data(bytes)
+    }
+
+    static func meterRegistration(port: UInt16) -> Data {
+        frame("UM", source: 0, body: [UInt8(truncatingIfNeeded: port), UInt8(port >> 8)])
     }
 
     static func subscribe(id: String) throws -> Data {

@@ -1,6 +1,38 @@
 import Combine
 import Foundation
 
+/// Only the meter views observe this object. Signal updates arrive more often than controls change.
+@MainActor
+final class MixerMeters: ObservableObject {
+    @Published private(set) var levels: [Int: Double] = [:]
+    private var deadline: ContinuousClock.Instant?
+    private var expiry: Task<Void, Never>?
+
+    fileprivate func replace(with frame: [Int: Double]) {
+        guard !frame.isEmpty else { clear(); return }
+        if levels != frame { levels = frame }
+        deadline = .now.advanced(by: .milliseconds(1500))
+        guard expiry == nil else { return }
+        // One sleeper follows the latest deadline even while frames arrive at 10 Hz.
+        expiry = Task { [weak self] in
+            while let deadline = self?.deadline {
+                do { try await Task.sleep(until: deadline, clock: .continuous) } catch { return }
+                guard let self, let latest = self.deadline else { return }
+                if latest <= .now { self.clear(); return }
+            }
+        }
+    }
+
+    fileprivate func clear() {
+        deadline = nil
+        expiry?.cancel()
+        expiry = nil
+        if !levels.isEmpty { levels = [:] }
+    }
+
+    deinit { expiry?.cancel() }
+}
+
 @MainActor
 final class MixerStore: ObservableObject {
     @Published private(set) var channels: [MixerChannel] = []
@@ -8,9 +40,11 @@ final class MixerStore: ObservableObject {
     @Published private(set) var status = MixerStatus.demo
     @Published var host: String
     @Published var port: String
+    let meters = MixerMeters()
 
+    var meterLevels: [Int: Double] { meters.levels }
     var selected: MixerChannel? { channels.first { $0.id == selectedID } }
-    var canMix: Bool { status == .demo || status == .live }
+    var canMix: Bool { !isSuspended && (status == .demo || status == .live) }
 
     private struct Endpoint {
         let host: String
@@ -120,6 +154,11 @@ final class MixerStore: ObservableObject {
 
     func suspend() {
         isSuspended = true
+        if status == .demo {
+            driver?.stop()
+            meters.clear()
+            return
+        }
         guard endpoint != nil else { return }
         tearDown()
         status = .offline("Connection paused.")
@@ -128,7 +167,8 @@ final class MixerStore: ObservableObject {
     func resume() {
         guard isSuspended else { return }
         isSuspended = false
-        if endpoint != nil { openEndpoint() }
+        if status == .demo { driver?.start() }
+        else if endpoint != nil { openEndpoint() }
     }
 
     private func openEndpoint() {
@@ -145,10 +185,11 @@ final class MixerStore: ObservableObject {
             guard let self, session == self.generation else { return }
             self.receive(event)
         }
-        newDriver.start()
+        if !isSuspended { newDriver.start() }
     }
 
     private func tearDown() {
+        meters.clear()
         clearReadbacks()
         retryTask?.cancel()
         retryTask = nil
@@ -162,6 +203,7 @@ final class MixerStore: ObservableObject {
     private func receive(_ event: MixerEvent) {
         switch event {
         case .snapshot(let snapshot):
+            meters.clear()
             clearReadbacks()
             channels = snapshot
             if selected == nil, let first = snapshot.first { selectedID = first.id }
@@ -181,6 +223,15 @@ final class MixerStore: ObservableObject {
             if let index = channels.firstIndex(where: { $0.id == id }) { channels[index].isMuted = muted }
         case let .name(id, name):
             if let index = channels.firstIndex(where: { $0.id == id }) { channels[index].name = name }
+        case let .meters(frame):
+            guard canMix else { return }
+            var readings = [Int: Double](minimumCapacity: channels.count)
+            for channel in channels {
+                if let db = frame[channel.id], db.isFinite || db == -.infinity {
+                    readings[channel.id] = db
+                }
+            }
+            meters.replace(with: readings)
         case .failure(let message):
             tearDown()
             guard retriesLeft > 0, endpoint != nil, !isSuspended else {

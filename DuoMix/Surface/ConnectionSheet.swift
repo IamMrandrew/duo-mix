@@ -20,13 +20,13 @@ struct ConnectionSheet: View {
                     }
                     switch store.status {
                     case .demo:
-                        Text("The faders control a local practice mix.").foregroundStyle(.secondary)
+                        Text("Demo uses simulated input signals.").foregroundStyle(.secondary)
                     case .connecting:
                         Text("Waiting for the console to send its channel state.").foregroundStyle(.secondary)
                     case .live:
                         Text(store.hasPendingWrites
                              ? "Faders show your requested settings while the desk confirms them."
-                             : "The faders control the connected console.")
+                             : "Input meters show estimated dBFS from the console.")
                             .foregroundStyle(.secondary)
                     case .offline(let message):
                         Text(message).foregroundStyle(.secondary).textSelection(.enabled)
@@ -80,12 +80,12 @@ struct ConnectionSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .onChange(of: store.status.displayName) { _, status in
-                if status == "Live" { dismiss() }
+            .onChange(of: store.status) { _, status in
+                if status == .live { dismiss() }
             }
         }
         .preferredColorScheme(.dark)
-        .tint(Desk.mint)
+        .tint(Desk.ink)
     }
 
     private var validEndpoint: Bool {
@@ -95,10 +95,10 @@ struct ConnectionSheet: View {
 
     private var demoActionTitle: String {
         switch store.status {
-        case .demo: "Return to demo desk"
-        case .offline: "Open demo desk"
-        case .connecting: "Cancel and open demo desk"
-        case .live: "Disconnect and open demo desk"
+        case .demo: "Return to mixer"
+        case .offline: "Use demo"
+        case .connecting: "Cancel and use demo"
+        case .live: "Disconnect and use demo"
         }
     }
 

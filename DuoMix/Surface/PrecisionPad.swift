@@ -4,33 +4,28 @@ struct PrecisionPad: View {
     let channel: MixerChannel
     let setLevel: (Double) -> Void
 
-    @GestureState private var touching = false
+    @GestureState private var contact: CGPoint?
     @State private var dragOrigin: Double?
     @State private var haptics = FaderHaptics(divisions: 100)
+    private var touching: Bool { contact != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "dial.low").foregroundStyle(Desk.mint)
-                Text("Fine control").font(.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-                Text(Desk.position(channel.level))
-                    .font(.system(.headline, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(Desk.mint)
-                    .accessibilityLabel("Fader position \(Desk.position(channel.level))")
-            }
-            HStack(spacing: 6) {
-                Text("IN \(Desk.number(channel.id))").font(Desk.label(11))
-                    .foregroundStyle(Desk.mint)
-                Text(channel.name).font(.subheadline.weight(.medium)).lineLimit(1)
+            HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Fine control").font(.headline)
+                    Text("\(Desk.number(channel.id)) · \(channel.name)")
+                        .font(.subheadline).foregroundStyle(Desk.detail).lineLimit(1)
+                }
                 Spacer(minLength: 0)
                 nudge("minus", label: "Lower fader one percent", amount: -0.01)
                 nudge("plus", label: "Raise fader one percent", amount: 0.01)
             }
             GeometryReader { geometry in
                 ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Desk.background)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(LinearGradient(colors: [Desk.background, Desk.panel],
+                                             startPoint: .top, endPoint: .bottomTrailing))
                     Canvas { context, size in
                         var dots = Path()
                         for y in stride(from: CGFloat(9), to: size.height - 3, by: 14) {
@@ -38,19 +33,26 @@ struct PrecisionPad: View {
                                 dots.addEllipse(in: CGRect(x: x, y: y, width: 1.4, height: 1.4))
                             }
                         }
-                        context.fill(dots, with: .color(Desk.detail.opacity(0.39)))
+                        context.fill(dots, with: .color(Desk.detail.opacity(0.22)))
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    Label("Drag up or down", systemImage: "arrow.up.and.down")
-                        .font(Desk.label()).foregroundStyle(touching ? Desk.mint : Desk.detail)
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(Desk.background, in: Capsule())
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    if let contact {
+                        Circle().strokeBorder(Desk.accent.opacity(0.85), lineWidth: 1.5)
+                            .frame(width: 28, height: 28)
+                            .position(contact)
+                    } else {
+                        Label("Drag up or down", systemImage: "arrow.up.and.down")
+                            .font(.subheadline.weight(.medium)).foregroundStyle(Desk.detail)
+                            .padding(.horizontal, 9).padding(.vertical, 5)
+                    }
                 }
-                .overlay(RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(touching ? Desk.mint : Desk.line, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(LinearGradient(colors: [.black.opacity(0.85), Desk.line],
+                                                 startPoint: .top, endPoint: .bottom)))
                 .contentShape(Rectangle())
                 .gesture(DragGesture(minimumDistance: 1)
-                    .updating($touching) { _, state, _ in state = true }
+                    .updating($contact) { drag, state, _ in state = drag.location }
                     .onChanged { drag in
                         if dragOrigin == nil {
                             dragOrigin = channel.level
@@ -70,7 +72,7 @@ struct PrecisionPad: View {
                 }
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Fine level for \(channel.name)")
+            .accessibilityLabel("Fine fader position for \(channel.name)")
             .accessibilityValue(Desk.position(channel.level))
             .accessibilityAdjustableAction { direction in
                 switch direction {
@@ -95,10 +97,11 @@ struct PrecisionPad: View {
                 setLevel(level)
             }
         } label: {
-            Image(systemName: icon).font(.caption.weight(.bold))
-                .frame(width: 30, height: 27)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Desk.raised))
-                .frame(width: 44, height: 44)
+            Image(systemName: icon).font(.system(size: 19, weight: .medium))
+                .frame(width: 44, height: 40)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Desk.raised))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Desk.line))
+                .frame(width: 48, height: 48)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

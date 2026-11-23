@@ -85,13 +85,8 @@ final class PreSonusDriver: MixerDriver {
     }
 
     private func subscribe(to peer: NWConnection) {
-        // The desk associates its permissions with this installation's identifier.
-        let key = "PreSonus.clientIdentifier"
-        let id = UserDefaults.standard.string(forKey: key)
-            ?? String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
-        UserDefaults.standard.set(id, forKey: key)
         do {
-            send(try PreSonusWire.subscribe(id: id), to: peer)
+            send(try PreSonusWire.subscribe(id: PreSonusWire.clientIdentifier), to: peer)
             receive(from: peer, decoder: PreSonusStream())
             keepAlive = Task { [weak self, weak peer] in
                 while !Task.isCancelled {

@@ -2,7 +2,9 @@ import SwiftUI
 
 struct ConnectionSheet: View {
     @ObservedObject var store: MixerStore
+    @StateObject private var discovery = MixerDiscovery()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @FocusState private var field: Field?
 
     private enum Field { case host, port }
@@ -38,6 +40,7 @@ struct ConnectionSheet: View {
                     }
                     .accessibilityIdentifier("use-demo")
                 }
+                if !sessionActive { discoverySection }
                 Section {
                     LabeledContent("Mixer") {
                         Text("StudioLive 32SX").foregroundStyle(.secondary)
@@ -57,9 +60,9 @@ struct ConnectionSheet: View {
                             .accessibilityLabel("TCP port").accessibilityIdentifier("mixer-port")
                     }
                 } header: {
-                    Text("PreSonus · Series III")
+                    Text("Manual connection")
                 } footer: {
-                    Text("Connect the mixer’s Control Ethernet port to the router. Join its Wi-Fi and enter the mixer’s control address.")
+                    Text("Use the address shown on the console’s UCNET screen.")
                 }
                 .disabled(sessionActive)
                 Section {
@@ -69,7 +72,7 @@ struct ConnectionSheet: View {
                     case .live:
                         Button("Disconnect") { store.disconnect() }
                     case .demo, .offline:
-                        Button("Connect to mixer") { field = nil; store.connect() }
+                        Button("Connect to mixer") { connect() }
                             .disabled(!validEndpoint)
                             .accessibilityIdentifier("connect-mixer")
                     }
@@ -81,11 +84,79 @@ struct ConnectionSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onChange(of: store.status) { _, status in
+                if sessionActive { discovery.stop() }
                 if status == .live { dismiss() }
+            }
+            .onDisappear { discovery.stop() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { discovery.stop() }
             }
         }
         .preferredColorScheme(.dark)
         .tint(Desk.ink)
+    }
+
+    private var discoverySection: some View {
+        Section {
+            if discovery.phase == .scanning {
+                HStack {
+                    ProgressView().accessibilityHidden(true)
+                    Text("Scanning…")
+                    Spacer()
+                    Button("Stop") { discovery.stop() }
+                        .buttonStyle(.borderless).accessibilityLabel("Stop scanning")
+                }
+                if discovery.total > 0 {
+                    ProgressView(value: Double(discovery.checked), total: Double(discovery.total))
+                        .accessibilityLabel("Scan progress")
+                }
+            } else {
+                Button {
+                    field = nil
+                    discovery.start()
+                } label: {
+                    Label("Scan for mixers", systemImage: "magnifyingglass")
+                }
+                .accessibilityIdentifier("scan-mixers")
+            }
+            ForEach(discovery.mixers) { mixer in
+                Button {
+                    store.host = mixer.host
+                    store.port = String(mixer.port)
+                    connect()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(mixer.name).font(.headline).lineLimit(2)
+                            Text(mixer.host).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Connect to \(mixer.name) at \(mixer.host)")
+                .accessibilityIdentifier("discovered-\(mixer.host)")
+            }
+        } header: {
+            Text("Nearby mixers")
+        } footer: {
+            switch discovery.phase {
+            case .failed(let message): Text(message)
+            case .stopped: Text("Scan stopped.")
+            case .finished where discovery.isPartial:
+                Text("Checked the 256-address range around this device. For a mixer elsewhere on this network, enter its address below.")
+            case .finished where discovery.mixers.isEmpty:
+                Text("No StudioLive mixers replied. Check that the console’s Control port and this device are on the same network.")
+            default: EmptyView()
+            }
+        }
+    }
+
+    private func connect() {
+        field = nil
+        discovery.stop()
+        store.connect()
     }
 
     private var validEndpoint: Bool {

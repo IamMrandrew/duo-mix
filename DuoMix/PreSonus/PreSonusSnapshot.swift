@@ -14,10 +14,16 @@ enum PreSonusError: LocalizedError {
 }
 
 /// The console sends a zlib stream containing a UBJSON parameter tree.
-enum PreSonusSnapshot {
+struct PreSonusSnapshot {
     static let maximumSize = 8 * 1024 * 1024
+    let channels: [MixerChannel]
+    let mixerName: String?
 
     static func decode(_ compressed: [UInt8]) throws -> [MixerChannel] {
+        try read(compressed).channels
+    }
+
+    static func read(_ compressed: [UInt8]) throws -> Self {
         guard !compressed.isEmpty, compressed.count <= maximumSize else { throw PreSonusError.snapshot }
         var capacity = 256 * 1024
         while capacity <= maximumSize {
@@ -32,12 +38,21 @@ enum PreSonusSnapshot {
                       let inputs = tree["children"]?["line"]?["children"]?.object else {
                     throw PreSonusError.snapshot
                 }
-                return try channels(in: inputs)
+                let global = tree["children"]?["global"]?["values"]
+                let name = displayName(global?["mixer_name"]?.string) ?? displayName(global?["devicename"]?.string)
+                return Self(channels: try channels(in: inputs), mixerName: name)
             }
             guard status == Z_BUF_ERROR else { throw PreSonusError.snapshot }
             capacity *= 2
         }
         throw PreSonusError.snapshot
+    }
+
+    private static func displayName(_ raw: String?) -> String? {
+        guard let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty, name.utf8.count <= 256,
+              name.rangeOfCharacter(from: .controlCharacters) == nil else { return nil }
+        return name
     }
 
     private static func channels(in inputs: [String: UBValue]) throws -> [MixerChannel] {

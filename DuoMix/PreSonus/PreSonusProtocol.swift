@@ -3,6 +3,14 @@ import Foundation
 /// UCNET framing for control on TCP. Meter packets use a separate UDP subscription.
 enum PreSonusWire {
     static let signature: [UInt8] = [0x55, 0x43, 0, 1]
+    // A console remembers permissions by installation. Scans and live sessions share the same ID.
+    static let clientIdentifier: String = {
+        let key = "PreSonus.clientIdentifier"
+        if let saved = UserDefaults.standard.string(forKey: key) { return saved }
+        let id = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(16)).lowercased()
+        UserDefaults.standard.set(id, forKey: key)
+        return id
+    }()
 
     static func frame(_ kind: String, source: UInt8 = 0x68, body: [UInt8] = []) -> Data {
         let size = UInt16(body.count + 6)
@@ -51,9 +59,12 @@ final class PreSonusStream: @unchecked Sendable {
     private var chunk = [UInt8]()
     private var chunkTotal = 0
     private var acknowledged = false
-    private var snapshot: [MixerChannel]?
+    private var snapshot: PreSonusSnapshot?
+    private var confirmedName: String?
     private var pending = [MixerEvent]()
     private var inputs = Set<Int>()
+
+    var mixerName: String? { lock.withLock { confirmedName } }
 
     func feed(_ data: Data) throws -> [MixerEvent] {
         lock.lock()
@@ -89,7 +100,7 @@ final class PreSonusStream: @unchecked Sendable {
             guard body.count > 4, PreSonusWire.uint32(body, at: 0) == body.count - 4 else {
                 throw PreSonusError.snapshot
             }
-            snapshot = try PreSonusSnapshot.decode(Array(body.dropFirst(4)))
+            snapshot = try PreSonusSnapshot.read(Array(body.dropFirst(4)))
         case "CK":
             try appendChunk(body)
         case "PV", "PS":
@@ -100,8 +111,9 @@ final class PreSonusStream: @unchecked Sendable {
         default: return
         }
         if acknowledged, let state = snapshot {
-            inputs = Set(state.map(\.id))
-            events.append(.snapshot(state))
+            inputs = Set(state.channels.map(\.id))
+            confirmedName = state.mixerName
+            events.append(.snapshot(state.channels))
             snapshot = nil
             try record(pending, into: &events)
             pending.removeAll()
@@ -162,7 +174,7 @@ final class PreSonusStream: @unchecked Sendable {
         chunkTotal = total
         chunk += body.dropFirst(16)
         if chunk.count == total {
-            snapshot = try PreSonusSnapshot.decode(chunk)
+            snapshot = try PreSonusSnapshot.read(chunk)
             chunk.removeAll()
             chunkTotal = 0
         }

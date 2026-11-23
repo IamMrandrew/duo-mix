@@ -22,8 +22,8 @@ The line across the grip marks the fader setting. The meter beside it and the dB
 
 ## First test with the 32SX
 
-1. Connect the mixer's **Control** Ethernet jack to a router's **LAN** port. Join that router's Wi-Fi on the phone. Read the mixer's control address on its **UCNET** screen. [PreSonus networking guide](https://pae-web.presonusmusic.com/downloads/products/pdf/Networking_for_StudioLive_Remote_Control_V2_EN_11102021.pdf)
-2. In Duo Mix, tap **Demo** in the toolbar. Enter the address, leave TCP port **53000** unless the desk uses a different port, and tap **Connect to mixer**. Allow Local Network access. On the console, grant the connected device **FOH** permission for the main mix. [PreSonus device permissions](https://support.presonus.com/hc/en-us/articles/360056143232-StudioLive-Series-III-Why-are-my-Meters-Dark-Grayed-out-and-can-t-Control-my-Mixer-in-Universal-Control)
+1. Connect the mixer's **Control** Ethernet jack to a router's **LAN** port. Join that router's Wi-Fi on the phone. [PreSonus networking guide](https://pae-web.presonusmusic.com/downloads/products/pdf/Networking_for_StudioLive_Remote_Control_V2_EN_11102021.pdf)
+2. In Duo Mix, tap **Demo → Scan for mixers** and allow Local Network access. Tap your mixer in the results. If needed, read its IP address from the console’s **UCNET** screen, enter it under **Manual connection**, and tap **Connect to mixer**. The default TCP port is **53000**. On the console, grant the connected device **FOH** permission for the main mix. [PreSonus device permissions](https://support.presonus.com/hc/en-us/articles/360056143232-StudioLive-Series-III-Why-are-my-Meters-Dark-Grayed-out-and-can-t-Control-my-Mixer-in-Universal-Control)
 3. Choose an unused input and note its starting fader and mute state. Wait for **Live**, then compare the channel name, mute state, and fader position with the desk. Move the desk fader and toggle mute. Confirm both changes appear on the phone.
 4. From the app, nudge the same fader and toggle mute. Watch the physical fader and mute light, and check that the changes also come back to the app. Restore the input's original settings. Compare the input meter with the console using a steady signal at a known level. Note both readings and confirm that removing the signal clears the meter.
 5. Drop Wi-Fi briefly, change the unused input at the desk, then restore Wi-Fi. If the automatic retries finish first, tap **Offline** and reconnect. The first values after reconnect should match the desk. If a check fails, record the console firmware, input number, app status, which control you moved, and what the other end showed.
@@ -42,7 +42,9 @@ Channel strips + fine pad
         └── PreSonusDriver   TCP control + UDP input meters ↔ StudioLive
 ```
 
-The surface consumes channel IDs, names, normalized fader travel, mute state, and input signal levels. The PreSonus driver translates them into console-specific messages. A second brand can implement the same driver contract. This build supports manual connection, input faders, input mute, and input meters. Mix buses, pan, EQ, scenes, and device discovery are future work.
+The surface consumes channel IDs, names, normalized fader travel, mute state, and input signal levels. The PreSonus driver translates them into console-specific messages. A second brand can implement the same driver contract. This build supports StudioLive discovery, manual connection, input faders, input mute, and input meters. Mix buses, pan, EQ, and scenes are future work.
+
+**Scan for mixers** checks TCP port 53000 on the active Wi-Fi or Ethernet IPv4 subnet. On larger networks it searches the 256-address block containing the phone. It lists each mixer by its reported name and address after receiving a UCNET subscription reply and valid channel state, then closes the probe. Selecting a result opens the control session. Use manual connection for consoles outside the scanned block or on a custom port. [StudioLive UCNET protocol](https://featherbear.cc/presonus-studiolive-api/#high-level-overview)
 
 ## Research notes
 
